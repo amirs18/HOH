@@ -1,7 +1,7 @@
-name: HoH checks
+name: HoH autoresearch checks
 on: [push, pull_request]
 jobs:
-  test:
+  verify:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

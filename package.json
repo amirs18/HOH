@@ -1,41 +1,17 @@
 {
-  "name": "hoh-pi",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "description": "Durable, evidence-driven supervision for Pi",
-  "engines": {
-    "node": ">=24.0.0"
-  },
-  "bin": {
-    "hoh": "dist/cli.js"
-  },
-  "pi": {
-    "extensions": [
-      "./src/extension.ts"
-    ]
-  },
+  "name": "hoh-pi", "version": "0.2.0", "private": true, "type": "module",
+  "description": "Pi-native, deterministic quality experiments, derived from pi-autoresearch",
+  "license": "MIT", "engines": { "node": ">=24" },
+  "pi": { "extensions": ["./src/extension.ts"], "skills": ["./skills"] },
+  "bin": { "hoh": "dist/cli.js" },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "demo": "tsx scripts/demo.ts",
-    "hoh": "tsx src/cli.ts",
-    "smoke:pi": "tsx scripts/pi-smoke.ts",
-    "fixture": "tsx scripts/setup-fixture.ts",
-    "smoke:live": "tsx scripts/live-pi.ts"
+    "build": "tsc", "typecheck": "tsc --noEmit", "test": "vitest run",
+    "demo": "tsx scripts/demo.ts", "hoh": "tsx src/cli.ts", "smoke:pi": "tsx scripts/pi-smoke.ts"
   },
-  "dependencies": {
-    "zod": "4.1.12"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "1.1.0"
-  },
+  "dependencies": { "zod": "4.1.12" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "1.1.0", "@sinclair/typebox": "^0.34.41" },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.1.0",
-    "@types/node": "24.10.0",
-    "tsx": "4.20.6",
-    "typescript": "5.9.3",
-    "vitest": "4.1.11"
+    "@earendil-works/pi-coding-agent": "1.1.0", "@sinclair/typebox": "0.34.41",
+    "@types/node": "24.10.0", "typescript": "5.9.3", "tsx": "4.20.6", "vitest": "4.1.11"
   }
 }

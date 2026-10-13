@@ -1,10 +1,23 @@
-# HoH for Pi — v0.1
+# HoH — built from pi-autoresearch
 
-HoH supervises small coding tasks using separate planning, building, and review sessions. A builder's completion message has no authority: controller-owned acceptance and regression checks evaluate a frozen Git commit, and only verified commits advance a private integration ref. Runs, attempts, findings, decisions, and evidence survive process restart in SQLite.
+HoH v0.2 is a Pi-native quality experiment loop based on [davebcn87/pi-autoresearch](https://github.com/davebcn87/pi-autoresearch), pinned at `04b8a50dac7efe80ffc91648bd00ed9b022e24c2` (1.9.0). The downloaded source and license are in `vendor/pi-autoresearch`; provenance and adapted modules are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Implemented against **Pi 1.1.0**, package **`@earendil-works/pi-coding-agent`**, on Node **24.21.0** / macOS. The specification's `@mariozechner/pi-coding-agent` name is obsolete for this installation. See the installed package's `docs/extensions.md`, `docs/rpc.md`, `docs/rpc-commands.md`, `docs/json.md`, and extension type declarations. Upstream references: [extensions](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/extensions.md), [RPC](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/rpc.md).
+The earlier POC is preserved under `archive/poc-v0.1`. Active code has **no SQLite** and no separate planner/worker/reviewer service. Pi proposes changes in its existing session; the extension measures frozen candidates and computes keep/discard. The native tool cycle, structured metric output, JSONL history, disk-based learnings and deterministic compaction come from autoresearch.
 
-## Install and verify
+## What is deterministic
+
+- Verifiers run against an exact commit and frozen specification/configuration/test hashes.
+- Each candidate is measured three times by default, with the same seed and a minimal environment.
+- HoH takes the median, enforces the configured absolute tolerance, and checks that requirement outcomes agree across repeats.
+- Failed/missing backpressure checks, missing metrics, unknown or duplicate protocol values, prior-requirement regressions and untrusted verification prevent keep.
+- Immutable JSON measurements plus fixed policy reproduce each decision exactly. Corrupt or forged decisions fail closed.
+- Compaction reconstructs the context from those files, using the adapted upstream compaction code, without an LLM summary call.
+
+The model's hypotheses and code edits remain nondeterministic. A fixed seed does not make arbitrary programs reproducible: the verifier must actually use it. Wall-clock measures need a reviewed tolerance. Git commit metadata and timing/artifact timestamps can differ between separate executions. The discrete seeded acceptance-score example uses zero tolerance.
+
+## Setup
+
+Tested with **Pi 1.1.0**, Node **24.21.0** and macOS.
 
 ```sh
 npm ci --ignore-scripts
@@ -15,106 +28,133 @@ npm run demo
 npm run smoke:pi
 ```
 
-`demo` creates a temporary, deliberately defective Git project. A deterministic fake model first produces incorrect addition, then repairs it after a real acceptance failure. Git, SQLite, subprocesses, OS isolation, and the verifier are real. It prints the repository, run ID, both SHAs, and evidence paths; reopening the database and resuming accepted work does not dispatch another builder. The fixture verifier executes candidate code in a separate subprocess so `process.exit(0)` cannot bypass its assertions.
+`demo` creates a temporary defective Git project and runs the real engine/verifier with scripted edits. A partial improvement is kept, a higher-scoring regression is rejected, restart preserves the best revision, and a final repair reaches the goal. Every trial has repeated measurements and JSON evidence. It verifies that the user's main branch/file stayed unchanged and that context reconstruction is identical after reopening.
 
-`smoke:pi` starts actual Pi 1.1.0 with `-e ./src/extension.ts`, checks command registration through RPC, and invokes `/hoh status`. It uses no model calls or credentials. Tests also run the entire CLI loop through deterministic JSONL model processes and kill a real controller process to exercise recovery.
+`smoke:pi` loads the actual extension into Pi, starts a baseline in manual mode, inspects status/evidence and pauses, without model calls. Tests additionally kill a real CLI process, recover its JSON lease/checkpoint, terminate an orphan verifier and repair in a new experiment. CI uses macOS; OS-isolation integration tests are explicitly skipped elsewhere.
 
-Acceptance currently requires macOS `sandbox-exec`. Other operating systems and nested environments that prohibit sandboxing fail closed with `UNTRUSTED`, before dispatching any agent. Portable unit/fail-closed tests still run there; isolation-dependent integration tests are explicitly skipped. CI uses macOS.
+## Prepare an experiment
 
-## Configure a project
+Use a clean, committed target project with `SPEC.md`. Do not include credentials, symlinks, submodules, Git filters, or tracked `.hoh` state. HoH never stashes or commits the user's checkout.
 
-Use a **clean, committed Git project** with its spec inside the project root. HoH refuses dirty baselines and does not initialize, stash, reset, clean, or commit the user's checkout. The HoH implementation repository itself initially has no baseline commit; use the provided temporary fixture to try it without changing this checkout.
+Copy [examples/config.json](examples/config.json) to `<project>/.hoh/config.json`, then place your trusted scripts in `.hoh/evaluation/`. The example scripts are in `test/fixtures/evaluation/`. Ignore `.hoh/` in Git.
 
-```sh
-npm run fixture
-```
+Configuration includes an objective/target, explicit source scope, requirement IDs/statements, allowlisted executables, measure and checks commands, repetitions, seed, tolerance, timeout and budgets. Commands are executable/argument arrays with `{candidate}`, `{evaluation}` and `{scratch}` placeholders; no shell interpolation occurs. Both measure and checks are required. Starting a run approves and freezes this prepared configuration and verifier assets. Changing current config affects only new runs.
 
-The last line is the temporary project path. Its `.hoh/config.json` is copied from [examples/defective-config.json](examples/defective-config.json), and its protected verifiers live in `.hoh/evaluation/`. Adapt the runner's `args` to select your provider/model and `inheritEnv` to explicitly name the credential environment variables to pass. For example, set `args` to `["--provider", "openai", "--model", "YOUR_MODEL_ID"]` and `inheritEnv` to `["OPENAI_API_KEY"]`. No user's Pi auth directory, settings, extensions, MCP servers, skills, or shell environment is mounted into worker sessions. OAuth credential-directory forwarding is not implemented.
+The included `/skill:hoh-create` helps prepare these reviewable files before activation. It does not let the active loop weaken verifiers or restart budgets.
 
-Each configured evaluator is an executable plus an argument array. No shell interpolation occurs. Its executable must appear in `allowlistedExecutables`. `{candidate}`, `{evaluation}`, and `{scratch}` are substituted as individual argument values. Verifiers run from the run's private copy of `.hoh/evaluation`; relative script paths therefore refer to that directory. Environment variables:
+The measure command receives:
 
-| Variable | Purpose |
+| Variable | Meaning |
 | --- | --- |
-| `HOH_CANDIDATE` | Read-only worktree of the exact candidate commit |
-| `HOH_EVALUATION` | Immutable snapshot of protected verifier assets |
-| `HOH_ARTIFACTS` | Writable output directory; captured into immutable evidence after the check |
+| `HOH_CANDIDATE` | Frozen candidate worktree, read-only during verification |
+| `HOH_SEED` | Fixed configured seed |
+| `HOH_REPEAT` | Repetition number (do not use it to change the measured workload) |
+| `HOH_ARTIFACTS` | Writable per-sample scratch/output directory |
+| `PYTHONHASHSEED`, `TZ` | Seed and UTC for reproducibility |
 
-Screenshots, traces, JSON results, and other outputs written to `HOH_ARTIFACTS` are collected (100 files / 50 MB total / 10 MB each; no symlinks). Stdout, stderr, invocation, diff, and `evaluation.json` are always recorded. Known environment values and credential patterns are redacted from text logs/artifacts. Treat screenshots and compressed binary results as potentially sensitive evidence.
+It must exit zero after successful execution and emit:
 
-All mandatory checks must pass. Acceptance and regression suites are always required. Missing build/typecheck/lint configurations are explicitly `NOT_CONFIGURED` and advisory; configure them as mandatory when the project needs them. Acceptance verifiers must cover the contract's requirement IDs. Future-slice acceptance checks are deferred; the current slice and every previously accepted requirement are verified again. Regression checks run on every candidate. The final release gate requires coverage of **all** requirements, including normal-priority requirements.
-
-The default `planApproval: "manual"` pauses after planning. Inspect `.hoh/runs/<id>/plan/plan.json`, approve its exact contract hash, then resume. This is needed because a Markdown-to-contract model translation cannot prove that it preserved every acceptance criterion. `planApproval: "configured-requirements"` enables automatic planning only with controller-owned authoritative `requirements`; the planner must preserve each one exactly and provide real verifiers. The original Markdown and hash remain persisted. Blocking product decisions pause the run; resolving them currently requires stopping and starting with a revised spec.
-
-`allowSnapshotCommit` defaults to false. Set it to true to authorize controller-created commits of worker edits. Workers cannot access shared Git metadata; the controller snapshots their index into commits without altering the worker HEAD or user branch. A fresh worktree/context is used for each repair and receives prior failure output and implementation diff.
-
-Conservative bounds default to three attempts per task, ten total builder iterations, one structured-output retry, and five minutes per operation. Stagnation invokes one separate diagnostician; further stagnation blocks. Token/cost budgets use reported Pi session statistics, fail closed when required usage is unavailable, and are checked between jobs. An in-flight job can overshoot a usage budget; these are not provider billing caps. Elapsed-time, attempts, limits, usage availability, and blockers appear in status.
-
-## Pi commands and CLI
-
-From the target project, load this extension with an absolute path:
-
-```sh
-pi -e /path/to/HOH/src/extension.ts
+```text
+METRIC requirements_passed=1
+CHECK R1=PASS
+CHECK R2=FAIL
 ```
 
-The package also declares the `pi.extensions` manifest. To add this local package through Pi, use `pi install /path/to/HOH`. No publishing is performed.
+The primary metric name must match config. Extra numeric metrics are advisory. Decimal finite values only; duplicate, malformed, NaN/Infinity, hex and prototype-polluting names are rejected. Emit one explicit outcome for every configured requirement. A requirement failure can contribute to a partial score, but cannot count as completing the product goal.
+
+The separate checks command must exit zero for mandatory regression/correctness checks. Configure build/type/lint checks here when appropriate. It runs after each successfully executed measure command. Do not import arbitrary candidate code into the trusted assertion process: use subprocess or black-box API checks. The fixture tests rejection of a candidate's early `process.exit(0)` and uses seeded cases.
+
+## Native Pi loop
+
+From the target project:
+
+```sh
+pi -e /absolute/path/to/HOH/src/extension.ts
+```
+
+Or install the local package using `pi install /absolute/path/to/HOH`. The Pi manifest includes both the extension and setup skill; nothing is published automatically.
 
 ```text
 /hoh start SPEC.md
 /hoh status
 /hoh inspect
 /hoh pause
-/hoh approve-plan <contractHash>
 /hoh resume
 /hoh stop
 ```
 
-The extension responds immediately to start/resume, runs orchestration asynchronously, emits UI notifications (RPC supported), and shows a compact TUI footer. Shutdown interrupts current children and leaves the run resumable. Headless contexts receive a custom status message.
+Start measures the baseline asynchronously, creates a dedicated draft and starts the bounded loop. `--manual` on start/resume enables the tools without triggering a model call. Opening a session never resumes billing automatically; `/hoh resume` is explicit. The widget shows recent experiments and the footer shows progress.
 
-The same operations are available without the Pi UI:
+The tool cycle is:
+
+1. `hoh_init_experiment`: read the approved objective/checkpoint.
+2. Edit only the checkpoint's absolute draft paths in the configured source scope.
+3. `hoh_run_experiment`: snapshot, freeze, repeat and collect evidence.
+4. `hoh_log_experiment`: supply run number, hypothesis, description, learned evidence and next focus. HoH computes the decision.
+
+These names are prefixed so an installed upstream autoresearch package cannot collide with HoH's tools. There are no agent-supplied score/status fields. A measured result blocks further edits until logged. Repeated log calls are idempotent. Discard leaves the failed draft for inspection and gives the next experiment a fresh worktree from the verified best commit, preserving user changes rather than resetting/cleaning them.
+
+**Keep means measured progress. COMPLETED means the product goal passed.** Improvements must exceed `minImprovement`; ties are discarded. Satisfying all requirements plus the configured target can close a previously incomplete goal. Already verified requirements may not regress, even when the headline metric improves. Iteration and no-progress budgets block further work; an agent that produces no experiment activity receives only bounded continuation nudges before pause.
+
+## JSON database
+
+```text
+.hoh/
+  config.json                 # reviewed input for the next run
+  evaluation/                 # trusted verifier source
+  current.json                # active run pointer
+  lease.json                  # single-writer PID/birth identity/heartbeat
+  runs/<id>/
+    run.json                  # immutable spec/config/baseline/hashes
+    state.json                # atomic resumable checkpoint
+    prompt.md                 # durable objective, from the original spec
+    ideas.md                  # derived learnings/next-focus memory
+    log.jsonl                 # derived autoresearch-compatible history
+    evaluation/               # frozen verifier copy
+    experiments/0000/
+      measurement.json        # immutable repeated evidence
+      decision.json           # immutable policy verdict + observations
+      candidate.diff
+      sample-1/               # invocation, stdout, stderr, scratch artifacts
+  worktrees/<id>/<number>/     # editable drafts (all preserved)
+  evaluation-worktrees/...    # frozen tested commits
+```
+
+JSON records are the database, not a mirror of SQLite. Writes fsync temporary files and atomically publish them. Decisions bind measurement hashes. Replay rechecks hashes and recomputes policy rather than trusting a checkpoint or display log to invent keep decisions. JSONL is a human-readable history/cache; damaging its tail cannot change decisions. Context uses canonical JSON records.
+
+Resume validates worktrees and frozen assets, reconciles committed decisions, and kills recorded orphan process groups. Interrupted measurement is logged as a failed experiment; it is never promoted to success. A measured-but-unlogged result can be logged after restart without rerunning the builder. PID/birth-identity leases prevent concurrent measurement/log writers. A crash during the rare stale-lease recovery guard itself can require inspecting/removing the empty `.hoh/recovery.guard`; the extension fails closed rather than guessing ownership.
+
+## CLI and adoption
+
+The same engine is usable without a model:
 
 ```sh
 node /path/to/HOH/dist/cli.js start SPEC.md --repo /path/to/project
 node /path/to/HOH/dist/cli.js status --repo /path/to/project
+# Edit the printed draft, then:
+node /path/to/HOH/dist/cli.js run --repo /path/to/project
+node /path/to/HOH/dist/cli.js log 1 "First hypothesis" --repo /path/to/project
 node /path/to/HOH/dist/cli.js inspect --repo /path/to/project
 node /path/to/HOH/dist/cli.js pause --repo /path/to/project
 node /path/to/HOH/dist/cli.js resume --repo /path/to/project
-node /path/to/HOH/dist/cli.js stop --repo /path/to/project
 ```
 
-Start/resume launch a detached local controller. `--wait` keeps it in the foreground and prints final status. From this repository, `npm run hoh -- ...` runs the TypeScript CLI. CLI output is JSON and excludes credentials and raw spec/config. Control requests are durable: pause lets the current bounded operation finish, while stop aborts children. Status may briefly show a pending control request before the owner processes it.
+`stop` cancels; `context` prints the deterministic recovery context. `npm run hoh -- ...` runs the source CLI. The CLI does not introduce a separate agent daemon; it is a measurement/recovery interface for the native loop.
 
-SQLite uses WAL, migrations, normalized records and transactional state/events. A unique active-run index prevents conflicting starts. PID + process birth identity + a durable heartbeat lease prevent duplicate dispatch. Resume kills recorded orphan process groups before reconciling attempts. Interrupted attempts consume their original attempt budget, and unfinished evaluations never become accepted during recovery. Completed accepted tasks are preserved. Verification configuration and assets are frozen per run; editing the current `.hoh/config.json` affects only new runs.
-
-Blocked runs are terminal for automatic work; inspect the evidence, stop the blocked run, fix its cause, and start anew. Worktrees and user edits are retained on stop. They are not automatically garbage-collected.
-
-After acceptance, inspect `REPORT.md` and adopt the private ref manually from a clean checkout:
+After inspecting completed evidence, adopt manually:
 
 ```sh
-git merge --ff-only refs/hoh/runs/<run-id>/accepted
+git merge --ff-only refs/hoh/<run-id>/best
 ```
 
-If your branch has diverged, review and cherry-pick the accepted commits yourself. HoH does not merge into user branches or push.
+The private best ref can point to partial progress during a run; check `COMPLETED` and the decision evidence before adopting a final deliverable. HoH performs no automatic merge or push.
 
-## Trust boundary and scope
+## Trust and remaining limits
 
-The operator, configured runner executable, controller installation, and verifier definitions are trusted. Spec text, project code, and agent responses are untrusted. macOS profiles allow worker writes only in the assigned worktree, deny shared `.git` and protected paths, and exclude controller state and verifier directories. Planner/reviewer/diagnostician workspaces allow writes only to session scratch. Evaluators can read the frozen source and verifier snapshot, and write only to bounded scratch. Their process groups are killed after execution, timeout, or cancellation. Protected asset hashes and candidate cleanliness are checked before acceptance.
+During active native mode, programmatic tool guards and the enabled-tool set confine the model to scoped `read`/`edit`/`write` operations. Shell, codemode, MCP, unknown tools, metadata, verifier files, old drafts, and out-of-scope paths are blocked. This is capability enforcement, not just a prompt. Evaluated candidate code runs under macOS OS filesystem restrictions with no forwarded credentials or network access; tests/state and frozen source are unwritable. Normal verifier process groups are terminated on exit/timeout/cancellation.
 
-Builders have `read`, `edit`, and `write` tools. **Builder shell tooling is deliberately disabled in this MVP**; approved executable tooling is run by the controller. Read-only sessions use `read`, `grep`, `find`, and `ls`. Worker sessions disable resource discovery, MCP, built-in extensions and context-file discovery. Only explicitly configured API credential variables reach Pi, and scratch HOME/agent paths are forced. The default runner launches the pinned Pi package directly, avoiding terminal wrapper extension injection.
+The Pi host, installed extensions, operator and verifier definitions remain trusted. Native model tools share the trusted Pi process; this is not the old POC's separate OS-sandboxed worker design. Untrusted plugin code or hostile daemonization needs stronger process/container containment. Protected tests are not advertised as hidden from candidate code during evaluation. Custom verifier exit semantics must actually check behavior. Dependency installation and browser lifecycle are left to reviewed, self-contained verifiers.
 
-These profiles demonstrate filesystem boundaries; they are not a hardened VM or defense against OS sandbox vulnerabilities. Tests are protected, not advertised as secret. Their sources are unavailable to builder tools, but evaluated candidate subprocesses inherit the verifier's read permissions. Do not import arbitrary candidate code into a trusted assertion process: use a subprocess or black-box API verifier, as the fixture does. A configured command returning zero is only as meaningful as its trusted verifier. An LLM reviewer provides advisory evidence of defects, not an objective certification of quality.
+Only macOS verifier isolation is implemented: other platforms fail closed for keep. No live-model autonomous smoke was billed/run, so actual model behavior remains unverified; scripted edits, real verification/recovery, adapter tests and actual Pi command loading/baseline were demonstrated. Multi-provider orchestration, subjective reviewer acceptance, cloud dashboards, arbitrary hooks and production deployment are outside this rewrite.
 
-Symlinks, submodules, Git filters, tracked credential files (including `.env.*`), and externally rooted worktrees are rejected in v0.1. Dependency installation/bootstrap is not automated; configure self-contained controller-owned scripts and provision tooling yourself. Test processes cannot write the candidate, so builds must write outputs to scratch. No container/Linux backend, interactive ambiguity-resolution command, human finding-adjudication command, built-in Playwright app lifecycle, benchmark CMS, or automatic cleanup/deployment is implemented. Browser/security/performance/property-test commands can be configured through the evaluator interface, but no browser-specific smoke was performed.
-
-## Optional model-backed smoke
-
-```sh
-HOH_LIVE_PROVIDER=YOUR_PROVIDER \
-HOH_LIVE_MODEL=YOUR_MODEL_ID \
-HOH_LIVE_INHERIT_ENV=YOUR_API_KEY_VARIABLE \
-npm run smoke:live
-```
-
-This explicitly configured run can incur model charges and uses separate Pi planner/builder/reviewer sessions. It leaves its fixture and evidence available for inspection. The implementation environment had no explicitly supplied API-key variables or selected live model; the actual Pi load/RPC smoke and deterministic model-process loop were run, but a billed live-model repair run was not.
-
-See [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) for measured outcomes and [the CMS benchmark guide](examples/git-cms/benchmark-guide.md) for the next experiment.
+See [HOH_AUTORESEARCH_SPEC.md](HOH_AUTORESEARCH_SPEC.md) for the revised scope and [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) for measured outcomes.

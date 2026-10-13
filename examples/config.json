@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "Arithmetic completeness",
+  "metric": { "name": "requirements_passed", "unit": "requirements", "direction": "higher", "target": 2, "minImprovement": 0, "absoluteTolerance": 0 },
+  "measure": { "executable": "node", "args": ["{evaluation}/measure.mjs"] },
+  "checks": { "executable": "node", "args": ["{evaluation}/checks.mjs"] },
+  "requirements": [
+    { "id": "R1", "statement": "Sum positive operands" },
+    { "id": "R2", "statement": "Sum negative and zero operands" }
+  ],
+  "scope": ["app.mjs"],
+  "allowlistedExecutables": ["node"],
+  "repeats": 3,
+  "seed": 42,
+  "maxIterations": 10,
+  "maxNoProgress": 3,
+  "timeoutMs": 120000
+}

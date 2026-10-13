@@ -1,39 +1,37 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import { piCli, JsonlDecoder } from '../src/agents/pi-rpc-runner.js';
-import { minimalEnv } from '../src/infra/process.js';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { fixture } from '../test/support.js';
+import { baseEnv } from '../src/io.js';
 
-const cwd = mkdtempSync(join(tmpdir(), 'hoh-pi-smoke-'));
-const child = spawn(process.execPath, [piCli(), '--mode', 'rpc', '--no-session', '--no-tools', '--no-extensions', '--no-mcp',
-  '--no-skills', '--no-prompt-templates', '--no-context-files', '-e', resolve('src/extension.ts')],
-  { cwd, env: { ...minimalEnv(), HOME: cwd, PI_CODING_AGENT_DIR: join(cwd, 'agent') }, stdio: 'pipe' });
-let stderr = '', loaded = false, notified = false;
-const send = (x: object) => child.stdin.write(JSON.stringify(x) + '\n');
-const success = new Promise<void>((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error(`PI_SMOKE_TIMEOUT: ${stderr}`)), 15_000);
-  const decoder = new JsonlDecoder(r => {
-    if (r.type === 'response' && r.id === 'commands') {
-      const commands = (r.data as { commands: { name: string }[] }).commands;
-      loaded = commands.some(c => c.name === 'hoh');
-      if (!loaded) { clearTimeout(timer); reject(new Error(`HOH_COMMAND_NOT_REGISTERED: ${stderr}`)); return; }
-      send({ type: 'prompt', id: 'status', message: '/hoh status' });
-    }
-    if (r.type === 'extension_ui_request' && r.method === 'notify') {
-      notified = String(r.message).includes('NO_RUN');
-    }
-    if (r.type === 'response' && r.id === 'status') {
-      clearTimeout(timer);
-      if (!r.success || !notified) reject(new Error(`HOH_STATUS_FAILED: ${stderr}`)); else resolve();
-    }
-  });
-  child.stdout.setEncoding('utf8'); child.stdout.on('data', c => { try { decoder.feed(c); } catch (e) { clearTimeout(timer); reject(e); } });
-  child.stderr.on('data', c => { stderr += c; });
-  child.on('error', e => { clearTimeout(timer); reject(e); });
-  child.on('exit', () => { clearTimeout(timer); reject(new Error(`PI_EXITED_BEFORE_SMOKE: ${stderr}`)); });
+const repo = await fixture(), cli = join(dirname(fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'))), 'bundle/cli.js');
+const child = spawn(process.execPath, [cli, '--mode','rpc','--no-session','--no-tools','--no-extensions','--no-mcp','--no-skills','--no-prompt-templates','--no-context-files','-e',resolve('src/extension.ts')],
+  { cwd: repo, env: { ...baseEnv(), HOME: repo, PI_CODING_AGENT_DIR: join(repo,'.hoh/pi-smoke-agent') }, stdio:'pipe' });
+let buffer='', stderr='', n=0;
+const pending=new Map<string,{resolve:(r:any)=>void;reject:(e:Error)=>void}>();
+const messages:any[]=[];
+child.stdout.setEncoding('utf8');child.stdout.on('data',data=>{
+  buffer+=data;
+  while(buffer.includes('\n')) { const i=buffer.indexOf('\n'), line=buffer.slice(0,i);buffer=buffer.slice(i+1);
+    const record=JSON.parse(line); messages.push(record);
+    if(record.type==='response' && pending.has(record.id)){const job=pending.get(record.id)!;pending.delete(record.id);record.success?job.resolve(record):job.reject(new Error(record.error));}
+  }
 });
+child.stderr.on('data',c=>{stderr+=c;});
+const send=(type:string,message?:string)=>new Promise<any>((resolve,reject)=>{
+  const id=String(++n);pending.set(id,{resolve,reject});child.stdin.write(JSON.stringify({id,type,message})+'\n');
+});
+const deadline=setTimeout(()=>{console.error(stderr);child.kill('SIGKILL');process.exitCode=1;},15000);
 try {
-  send({ type: 'get_commands', id: 'commands' }); await success;
-  console.log(JSON.stringify({ piVersion: '1.1.0', extensionLoaded: loaded, command: '/hoh status', rpcNotification: notified, modelCalls: 0, cwd }, null, 2));
-} finally { child.kill('SIGTERM'); }
+  const commands=await send('get_commands');if(!commands.data.commands.some((c:any)=>c.name==='hoh'))throw new Error('HoH command not registered');
+  await send('prompt','/hoh start SPEC.md --manual');
+  let ready=false;
+  for(let i=0;i<80&&!ready;i++){
+    await new Promise(r=>setTimeout(r,100));await send('prompt','/hoh status');
+    const notice=messages.filter(r=>r.type==='extension_ui_request'&&r.method==='notify').at(-1);
+    if(notice){try{const status=JSON.parse(notice.message);ready=status.bestMetric===0&&status.draft?.run===1&&!status.pending;}catch{}}
+  }
+  if(!ready)throw new Error(`Pi baseline did not complete: ${JSON.stringify(messages.slice(-5))} ${stderr}`);
+  await send('prompt','/hoh inspect');await send('prompt','/hoh pause');
+  console.log(JSON.stringify({piVersion:'1.1.0',extensionLoaded:true,baselineMeasured:true,commands:['start --manual','status','inspect','pause'],modelCalls:0,repo},null,2));
+}finally{clearTimeout(deadline);child.kill('SIGTERM');}

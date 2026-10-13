@@ -1,39 +1,27 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
-import { openSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Controller } from './core/controller.js';
-import { command } from './core/commands.js';
-import { publicStatus } from './ui/status.js';
+import { HoH } from './engine.js';
+import { publicStatus, context } from './context.js';
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2), repoIndex = args.indexOf('--repo');
-  const repo = repoIndex >= 0 ? args.splice(repoIndex, 2)[1] : process.cwd();
-  if (!repo) throw new Error('USAGE: --repo <path>');
-  const waitIndex = args.indexOf('--wait'), wait = waitIndex >= 0;
-  if (wait) args.splice(waitIndex, 1);
-  const [verb, ...rest] = args;
-  const controller = new Controller(repo);
-  const terminate = () => { void controller.shutdown(); };
-  process.on('SIGTERM', terminate); process.on('SIGINT', terminate);
+  const args = process.argv.slice(2), i = args.indexOf('--repo');
+  const repo = i >= 0 ? args.splice(i, 2)[1] : process.cwd();
+  const [verb = 'status', ...rest] = args, engine = new HoH(repo);
+  const abort = new AbortController();
+  const stop = () => { abort.abort(); void engine.pause(); };
+  process.on('SIGINT', stop); process.on('SIGTERM', stop);
   try {
-    if (verb === '_run') { await controller.drive(rest[0]); return; }
-    const result = await command(controller, verb ?? 'status', rest.join(' '));
-    if (result.dispatch) {
-      if (wait) {
-        await controller.drive(result.runId);
-        result.output = publicStatus(controller.status(result.runId), controller.inspect(result.runId));
-        if (['BLOCKED', 'FAILED'].includes(controller.status(result.runId)!.state)) process.exitCode = 2;
-      } else {
-        const logDir = join(controller.repo, '.hoh/runs', result.runId!); mkdirSync(logDir, { recursive: true });
-        const fd = openSync(join(logDir, 'controller.log'), 'a', 0o600);
-        const child = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), '_run', result.runId!, '--repo', controller.repo],
-          { detached: true, stdio: ['ignore', fd, fd], env: process.env });
-        child.unref();
-      }
-    }
-    process.stdout.write(JSON.stringify(result.output, null, 2) + '\n');
-  } finally { process.removeListener('SIGTERM', terminate); process.removeListener('SIGINT', terminate); controller.close(); }
+    let result: unknown;
+    if (verb === 'start') result = await engine.start(rest.join(' '));
+    else if (verb === 'run') result = await engine.run(abort.signal);
+    else if (verb === 'log') {
+      const run = Number(rest.shift()); result = await engine.log(run, { description: rest.join(' ') || 'CLI experiment' });
+    } else if (verb === 'resume') result = await engine.resume();
+    else if (verb === 'pause' || verb === 'stop') { await engine[verb](); result = publicStatus(engine); }
+    else if (verb === 'inspect') result = engine.inspect() ?? { state: 'NO_MEASUREMENT' };
+    else if (verb === 'context') { process.stdout.write(context(engine) + '\n'); return; }
+    else if (verb === 'status') result = publicStatus(engine);
+    else throw new Error('Usage: hoh start SPEC.md | run | log N DESCRIPTION | resume | pause | stop | status | inspect | context [--repo PATH]');
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  } finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
 }
-main().catch(e => { process.stderr.write(`${(e as Error).message}\n`); process.exitCode = 1; });
+main().catch(error => { process.stderr.write(`${(error as Error).message}\n`); process.exitCode = 1; });
