@@ -1,0 +1,41 @@
+{
+  "name": "hoh-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Durable, evidence-driven supervision for Pi",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "hoh": "dist/cli.js"
+  },
+  "pi": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "demo": "tsx scripts/demo.ts",
+    "hoh": "tsx src/cli.ts",
+    "smoke:pi": "tsx scripts/pi-smoke.ts",
+    "fixture": "tsx scripts/setup-fixture.ts",
+    "smoke:live": "tsx scripts/live-pi.ts"
+  },
+  "dependencies": {
+    "zod": "4.1.12"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@types/node": "24.10.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

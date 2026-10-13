@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "command": "pi",
+    "args": [],
+    "inheritEnv": [],
+    "env": {}
+  },
+  "isolation": "auto",
+  "worktreeRoot": ".hoh/worktrees",
+  "allowlistedExecutables": ["node"],
+  "allowSnapshotCommit": true,
+  "timeoutMs": 180000,
+  "maxAttemptsPerTask": 3,
+  "maxTotalIterations": 10,
+  "reviewRequired": true,
+  "planApproval": "configured-requirements",
+  "requirements": [{
+    "id": "R1",
+    "statement": "Add operands correctly",
+    "priority": "critical",
+    "acceptanceCriteria": ["Sum positive, negative, and zero operands; preserve multiplication"],
+    "verificationIds": ["acceptance"],
+    "dependencies": []
+  }],
+  "evaluators": [
+    {
+      "id": "acceptance", "kind": "acceptance", "executable": "node",
+      "args": ["{evaluation}/acceptance.mjs"], "requirementIds": ["R1"], "mandatory": true
+    },
+    {
+      "id": "regression", "kind": "regression", "executable": "node",
+      "args": ["{evaluation}/regression.mjs"], "mandatory": true
+    }
+  ]
+}

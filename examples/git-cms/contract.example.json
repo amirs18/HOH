@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "sourceSpecHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "productGoal": "Durable collections and document CRUD (CMS-1 only)",
+  "constraints": ["No external deployment", "Do not weaken protected acceptance criteria"],
+  "requirements": [
+    {
+      "id": "CMS1", "statement": "Create typed collections and perform durable document CRUD through HTTP",
+      "priority": "critical",
+      "acceptanceCriteria": ["Create and validate collection schemas", "Create/read/update/delete typed documents", "Persist correct state across restart", "Invalid writes leave state unchanged"],
+      "verificationIds": ["cms1-api", "cms1-persistence"], "dependencies": []
+    }
+  ],
+  "unresolvedDecisions": [
+    { "id": "storage", "question": "Which embedded persistence implementation should the benchmark use?", "impact": "nonblocking", "recommendedDefault": "SQLite" }
+  ]
+}

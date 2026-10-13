@@ -1,0 +1,10 @@
+import { createFixture } from '../test/support/fixture.js';
+import { Controller } from '../src/core/controller.js';
+import { publicStatus } from '../src/ui/status.js';
+const provider = process.env.HOH_LIVE_PROVIDER, model = process.env.HOH_LIVE_MODEL;
+const credentials = (process.env.HOH_LIVE_INHERIT_ENV ?? '').split(',').filter(Boolean);
+if (!provider || !model || !credentials.length) throw new Error('Set HOH_LIVE_PROVIDER, HOH_LIVE_MODEL and HOH_LIVE_INHERIT_ENV (comma-separated credential variable names). No default billing/model choice.');
+const repo = await createFixture({ runner: { command: 'pi', args: ['--provider', provider, '--model', model], inheritEnv: credentials }, timeoutMs: 180_000 });
+const c = new Controller(repo); const run = await c.start('SPEC.md');
+await c.drive(run.id); console.log(JSON.stringify({ repo, ...publicStatus(c.status(), c.inspect()) }, null, 2));
+if (c.status()!.state !== 'ACCEPTED') process.exitCode = 2; c.close();
